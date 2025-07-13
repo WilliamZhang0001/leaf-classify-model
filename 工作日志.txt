@@ -1,0 +1,95 @@
+25/7/12
+
+1）创建版本环境：
+GPU device name: NVIDIA GeForce RTX 4080 Laptop GPU
+python: 3.12
+CUDA : 12.8
+PyTorch : 2.7.1+cu128 (GPU版本)
+cuDNN : v8.9.7.29
+GPU Driver : 576.88
+
+2）下载数据集：
+Plant_leave_diseases_dataset_with_augmentation #增强数据集
+Plant_leave_diseases_dataset_without_augmentation #未增强数据集
+
+3）构建项目目录：
+group_project/
+├─ data/                 # 原始 & 处理后数据
+│  ├─Plant_leave_diseases_dataset_with_augmentation #原始增强数据
+│  ├─split_with_713 #处理后数据
+│  │  ├─test
+│  │  ├─train
+│  │  ├─val
+├─ notebooks/            # EDA + 训练记录
+├─ src/
+│  ├─ datasets.py        # 自定义 Dataset / transforms
+│  ├─ models/            # baseline9.py, efficientnet.py...
+│  ├─ train.py           # 可CLI化训练脚本
+│  ├─ infer.py           # 推理 & 可视化
+├─ outputs/              # checkpoints, logs, tensorboard,图片
+├─ demo/
+
+
+
+25/7/13
+
+1）分割原始数据，每个类别文件内部照片分为：
+70%train(700)，15%test(150)，15%val(150)
+
+2）选择数据增强策略：
+
+在本项目中，为了提升模型对光照、角度和环境变化的鲁棒性，同时兼顾验证与测试阶段的稳定评估及部署速度，我们对训练集、验证集和测试集分别采用了如下数据预处理策略：
+
+1.训练集（Train）
+
+1.1RandomResizedCrop(224, scale=(0.8,1.0))：随机裁剪并缩放至224×224，保证裁剪区域至少保留原图80%信息；
+
+1.2 RandomHorizontalFlip/RandomVerticalFlip()：水平和垂直翻转，模拟叶片不同朝向；
+
+1.3 ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)：随机扰动亮度、对比度、饱和度和色调，模拟多变光照条件；
+
+1.4 RandomRotation(20)：随机旋转±20°，增强模型对叶片旋转的鲁棒性；
+
+1.5 ToTensor + Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])：将图像转换为张量并按 ImageNet 的均值与标准差归一化，加速模型收敛。
+
+这一系列随机变换可显著扩充训练样本多样性，减少过拟合，帮助模型学习到更具泛化能力的特征。
+
+2.验证集（Val）
+
+2.1 Resize(256) + CenterCrop(224)：先将长边缩放至256，再从中心裁剪出224×224区域；
+
+2.2 ToTensor + Normalize(...)：同训练集的归一化方式。
+
+验证集不做随机增强，以便在每个 epoch 后稳定、可重复地评估模型性能，便于超参数调优。
+
+3. 测试集（Test）
+
+3.1 TenCrop(224) → ToTensor + Normalize(...)：对每张输入图在Resize(256)后生成十个固定裁剪（五个位置及对应水平翻转），分别做归一化后堆叠为一个小批次；
+
+3.2 Soft Voting：对这十个裁剪的预测概率取平均，得到最终分类。
+
+仅采用 TenCrop 而不启用更复杂的多策略 TTA（如旋转、缩放等），是在准确率提升与推理速度/硬件消耗之间取得平衡：TenCrop 在保证少量额外计算的同时，能有效提高模型在真实部署环境下的稳定性和精度。
+
+4）对src/transforms.py文件中各个数据增强函数使用的解释：
+
+在train.py文件中
+训练集数据增强用train_transforms；
+测试集/验证集数据增强用val_test_transforms；
+单张图推理时调用tta_transforms的TenCrop策略来增强预测：
+让模型用“多个视角”理解当前图片，避免一次预测带来的偶然错误 → 提高鲁棒性与精度。
+
+举例：
+普通预测 - 只看一张照片，觉得这是“病斑 A”
+TTA/TenCrop - 从不同角度、裁剪、缩放下，看这张叶子十次再下结论 → 结果更靠谱
+
+缺点：
+TenCrop 会提高精度但更慢，因为每张图要跑 10 次推理
+
+
+
+
+
+
+
+
+
