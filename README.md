@@ -1,4 +1,4 @@
-版本环境：
+Version environment:
 GPU device name: NVIDIA GeForce RTX 4080 Laptop GPU
 
 python: 3.12
